@@ -3,9 +3,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from contextlib import asynccontextmanager
+from zoneinfo import ZoneInfo
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Path
@@ -26,6 +27,17 @@ COL_NAME = os.getenv("MONGO_COL", "history")
 
 NGROK_AUTH = os.getenv("NGROK_AUTH", "")
 PORT = int(os.getenv("PORT", "8111"))
+APP_TIMEZONE = ZoneInfo("Asia/Bangkok")
+
+
+def now_in_app_tz() -> datetime:
+    return datetime.now(APP_TIMEZONE)
+
+
+def to_app_tz(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(APP_TIMEZONE)
 
 
 # -----------------------------------------------------------------------------
@@ -74,7 +86,11 @@ async def lifespan(app: FastAPI):
         State.collection = None
     else:
         try:
-            State.client = AsyncIOMotorClient(MONGO_URL)
+            State.client = AsyncIOMotorClient(
+                MONGO_URL,
+                tz_aware=True,
+                tzinfo=APP_TIMEZONE,
+            )
             await State.client.admin.command("ping")
             State.collection = State.client[DB_NAME][COL_NAME]
             print("MongoDB connected.")
@@ -144,7 +160,7 @@ async def search(track: str = Query(..., min_length=1)):
             "query": query,
             "results": [t.model_dump() for t in tracks],
             "count": count,
-            "timestamp": datetime.utcnow(),
+            "timestamp": now_in_app_tz(),
         }
         result = await State.collection.insert_one(doc)
         search_id = str(result.inserted_id)
@@ -158,23 +174,23 @@ async def search(track: str = Query(..., min_length=1)):
 
 
 @app.get("/history", response_model=List[HistoryItem])
-async def history(limit: int = Query(15, ge=1, le=100)):
+async def history():
     if State.collection is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
     cursor = (
         State.collection.find({}, {"results": 0})
         .sort("timestamp", -1)
-        .limit(limit)
     )
 
     items: List[HistoryItem] = []
     async for d in cursor:
+        timestamp = to_app_tz(d.get("timestamp") or now_in_app_tz())
         items.append(
             HistoryItem(
                 search_id=str(d.get("_id")),
                 query=d.get("query", ""),
-                timestamp=d.get("timestamp", datetime.utcnow()),
+                timestamp=timestamp,
             )
         )
     return items
@@ -203,6 +219,32 @@ async def history_by_id(search_id: str = Path(...)):
         query=d.get("query", ""),
         count=count,
     )
+
+
+@app.api_route("/delete", methods=["DELETE", "GET"])
+async def delete_all_history():
+    if State.collection is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    result = await State.collection.delete_many({})
+    return {"deleted_count": result.deleted_count}
+
+
+@app.api_route("/delete/{search_id}", methods=["DELETE", "GET"])
+async def delete_history_by_id(search_id: str = Path(...)):
+    if State.collection is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    try:
+        oid = ObjectId(search_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid search_id")
+
+    result = await State.collection.delete_one({"_id": oid})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    return {"deleted": True, "search_id": search_id}
 
 
 # -----------------------------------------------------------------------------

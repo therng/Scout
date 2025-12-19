@@ -66,7 +66,7 @@ class PlaywrightManager:
         self.playwright = await async_playwright().start()
 
         self.browser = await self.playwright.chromium.launch(
-            headless=True,
+            headless=False,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
@@ -107,7 +107,7 @@ class PlaywrightManager:
         await self.start()
 
         page: Page = await self.context.new_page()
-        page.set_default_timeout(10000)  # 10s default timeout
+        page.set_default_timeout(5000)  # 5s default timeout
 
         results: List[Dict] = []
 
@@ -115,12 +115,26 @@ class PlaywrightManager:
         q = page.locator("#query")
         await q.fill(query)
         await q.press("Enter")
-        
-        loadmore = page.get_by_role("button", name="Load more")
-        await loadmore.scroll_into_view_if_needed()
-        if (await loadmore.is_visible()):
-            await loadmore.click()
 
+        items = page.locator(f"xpath={self.items_xpath}")
+
+        # Ensure initial results are present before proceeding
+        try:
+            await items.first.wait_for(state="visible")
+        except PlaywrightTimeoutError:
+            await page.close()
+            return results
+
+        loadmore = page.get_by_role("button", name="Load more")
+
+        if await loadmore.is_visible():
+            for _ in range(2):  # ทำวน 2 รอบ
+                if not await loadmore.is_visible():
+                    break
+                await loadmore.scroll_into_view_if_needed()
+                await loadmore.click()
+                await page.wait_for_timeout(2000)
+                
         items = page.locator(f"xpath={self.items_xpath}")
         total = await items.count()
         print(f"Results = {total}")
