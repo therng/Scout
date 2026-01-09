@@ -23,8 +23,9 @@ class Track(BaseModel):
     artist: Optional[str] = None
     title: Optional[str] = None
     duration: Optional[int] = None
-    download: Optional[str] = None
-    stream: Optional[str] = None
+    key: Optional[str] = None
+#   download: Optional[str] = None
+#   stream: Optional[str] = None
 
 
 # -----------------------------
@@ -107,7 +108,7 @@ class PlaywrightManager:
         await self.start()
 
         page: Page = await self.context.new_page()
-        page.set_default_timeout(5000)  # 5s default timeout
+        page.set_default_timeout(2000)  # 5s default timeout
 
         results: List[Dict] = []
 
@@ -128,12 +129,12 @@ class PlaywrightManager:
         loadmore = page.get_by_role("button", name="Load more")
 
         if await loadmore.is_visible():
-            for _ in range(2):  # ทำวน 2 รอบ
+            for _ in range(2):
                 if not await loadmore.is_visible():
                     break
                 await loadmore.scroll_into_view_if_needed()
                 await loadmore.click()
-                await page.wait_for_timeout(2000)
+                await page.wait_for_timeout(1500)
                 
         items = page.locator(f"xpath={self.items_xpath}")
         total = await items.count()
@@ -141,25 +142,28 @@ class PlaywrightManager:
         
         for idx in  range (1, total):
             row = items.nth(idx)
-            artist = await row.locator(f"xpath=./a[2]").text_content()
-            title = await row.locator(f"xpath=./a[3]").text_content()
+            artist = (await row.locator("xpath=./a[2]").text_content()).strip()
+            title  = (await row.locator("xpath=./a[3]").text_content()).strip()
             rowattr = row.locator(f"xpath=./div/ul/li[2]/a")
             duration = await rowattr.first.get_attribute("data-duration")
-            download = await rowattr.first.get_attribute("href")
-            stream = await rowattr.first.get_attribute("data-stream")
+            key = (await rowattr.first.get_attribute("href")).split("/")[-1].strip()
+            
+##           download = await rowattr.first.get_attribute("href")
+##           stream = await rowattr.first.get_attribute("data-stream")
      
 
-            if not any([artist, title, duration, download, stream]):
+            if not any([artist, title, duration, key]):
                 continue
 
             results.append(
                 {
                     "id": len(results) + 1,
-                    "artist": (artist or "").strip(),
-                    "title": (title or "").strip(),
+                    "artist": artist,
+                    "title": title,
                     "duration": duration,
-                    "download": (download or "").strip(),
-                    "stream": (stream or "").strip(),
+                    "key": key,
+ #                   "download": (download or "").strip(),
+ #                   "stream": (stream or "").strip(),
                 }
             )
 

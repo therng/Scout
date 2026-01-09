@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
 from contextlib import asynccontextmanager
 from zoneinfo import ZoneInfo
@@ -22,8 +22,8 @@ from scraper import search_tracks_async
 # Configuration from environment (.env)
 # -----------------------------------------------------------------------------
 MONGO_URL = os.getenv("MONGO_URL")
-DB_NAME = os.getenv("MONGO_DB", "music")
-COL_NAME = os.getenv("MONGO_COL", "history")
+DB_NAME = os.getenv("MONGO_DB", "music_search_db")
+COL_NAME = os.getenv("MONGO_COL", "search_history")
 
 NGROK_AUTH = os.getenv("NGROK_AUTH", "")
 PORT = int(os.getenv("PORT", "8111"))
@@ -31,13 +31,56 @@ APP_TIMEZONE = ZoneInfo("Asia/Bangkok")
 
 
 def now_in_app_tz() -> datetime:
-    return datetime.now(APP_TIMEZONE)
+    return datetime.now(APP_TIMEZONE).replace(tzinfo=None)
 
 
 def to_app_tz(dt: datetime) -> datetime:
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=APP_TIMEZONE)
     return dt.astimezone(APP_TIMEZONE)
+
+
+# -----------------------------------------------------------------------------
+# Database Index Setup
+# -----------------------------------------------------------------------------
+async def create_indexes(collection: AsyncIOMotorCollection):
+    """
+    Setup MongoDB indexes for music search history inside the main app.
+    """
+    try:
+        # 1. Index for specific track lookups by key
+        await collection.create_index(
+            "results.key",
+            name="idx_track_key",
+            unique=False,
+            background=True
+        )
+
+        # 2. Full-Text Search Index
+        await collection.create_index(
+            [
+                ("query", "text"),
+                ("results.title", "text"),
+                ("results.artist", "text")
+            ],
+            name="idx_full_text_search",
+            weights={
+                "query": 10,
+                "results.title": 5,
+                "results.artist": 3
+            },
+            background=True
+        )
+
+        # 3. Descending Index for history sorting
+        await collection.create_index(
+            [("timestamp", -1)],
+            name="idx_timestamp_desc",
+            background=True
+        )
+        print("MongoDB indexes verified.")
+    except Exception as e:
+        print(f"Warning: Error creating indexes: {e}")
 
 
 # -----------------------------------------------------------------------------
@@ -58,8 +101,7 @@ class Track(BaseModel):
     artist: str
     title: str
     duration: int
-    download: str
-    stream: str
+    key: str
 
 
 class SearchResponse(BaseModel):
@@ -86,29 +128,27 @@ async def lifespan(app: FastAPI):
         State.collection = None
     else:
         try:
-            State.client = AsyncIOMotorClient(
-                MONGO_URL,
-                tz_aware=True,
-                tzinfo=APP_TIMEZONE,
-            )
+            State.client = AsyncIOMotorClient(MONGO_URL)
             await State.client.admin.command("ping")
             State.collection = State.client[DB_NAME][COL_NAME]
+            
+            # Setup MongoDB Indexes
+            await create_indexes(State.collection)
+            
             print("MongoDB connected.")
         except Exception as e:
             print("MongoDB connection error:", e)
             State.client = None
             State.collection = None
 
-    # App is ready
     yield
 
-    # Teardown
     if State.client:
         State.client.close()
         print("MongoDB closed.")
 
 
-app = FastAPI(title="Music Search API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Music Search API", version="1.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -144,11 +184,9 @@ async def search(track: str = Query(..., min_length=1)):
     if not query:
         raise HTTPException(status_code=400, detail="Empty query")
 
-    # Call Playwright scraper
     try:
         raw_items = await search_tracks_async(query)
     except Exception as e:
-        # Important: bubble errors instead of “นิ่ง”
         raise HTTPException(status_code=500, detail=f"Scraper error: {e}")
 
     tracks = [Track.model_validate(x) for x in (raw_items or [])]
@@ -171,6 +209,23 @@ async def search(track: str = Query(..., min_length=1)):
         query=query,
         count=count,
     )
+
+
+@app.get("/track/{track_key}", response_model=Track)
+async def get_track_by_key(track_key: str = Path(...)):
+    """Find a specific track by its key using MongoDB index."""
+    if State.collection is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    doc = await State.collection.find_one({"results.key": track_key})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    for t in doc.get("results", []):
+        if t.get("key") == track_key:
+            return Track.model_validate(t)
+    
+    raise HTTPException(status_code=404, detail="Track not found")
 
 
 @app.get("/history", response_model=List[HistoryItem])
@@ -247,17 +302,10 @@ async def delete_history_by_id(search_id: str = Path(...)):
     return {"deleted": True, "search_id": search_id}
 
 
-# -----------------------------------------------------------------------------
-# Entry point (for ./main.py)
-# -----------------------------------------------------------------------------
 if __name__ == "__main__":
     if NGROK_AUTH:
         ngrok.set_auth_token(NGROK_AUTH)
         tunnel = ngrok.connect(PORT)
         url = tunnel.public_url
-        print(f'\033[1;92m{url}/search?track=Xijaro%20Pitch%20Extended%20Mix\033[0m')
-        print()
-        print(f'\033[1;92m{url}/search?track=Armin%20Van%20Extended%20Mix\033[0m')
-        print()
-        print(f'\033[1;92m{url}/search?track=Aly%20Fila%20Extended%20Mix\033[0m')
+        print(f'\033[1;92m{url}/search?track=Xijaro%20Pitch\033[0m')
     uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=True)
