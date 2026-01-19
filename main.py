@@ -16,7 +16,7 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from bson.objectid import ObjectId
 from pyngrok import ngrok
 
-from scraper import search_tracks_async
+from scraper import search_tracks_async, search_beatport_track_id_async
 
 # -----------------------------------------------------------------------------
 # Configuration from environment (.env)
@@ -209,6 +209,22 @@ async def search(track: str = Query(..., min_length=1)):
         query=query,
         count=count,
     )
+
+
+@app.get("/beatport/track-id")
+async def get_beatport_track_id(
+    artist: str = Query(..., min_length=1),
+    title: str = Query(..., min_length=1),
+    mix: str = Query("", description="Mix name, e.g. Extended Mix")
+):
+    """Find a Beatport track ID from title, artist, and mix name."""
+    try:
+        track_id = await search_beatport_track_id_async(artist, title, mix)
+        if not track_id:
+            raise HTTPException(status_code=404, detail="Track not found on Beatport")
+        return {"track_id": track_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Beatport search error: {e}")
 
 
 @app.get("/track/{track_key}", response_model=Track)

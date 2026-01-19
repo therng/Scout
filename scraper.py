@@ -174,6 +174,50 @@ class PlaywrightManager:
 
         await page.close()
         return results
+
+    # -----------------------------
+    async def search_beatport_track_id(self, artist: str, title: str, mix: str) -> Optional[int]:
+        query = f"{artist} {title} {mix}".strip()
+        search_url = f"https://www.beatport.com/search?q={query}"
+
+        await self.start()
+        page: Page = await self.context.new_page()
+        
+        # Increase timeout for Beatport/Cloudflare
+        page.set_default_timeout(10000)
+
+        try:
+            await page.goto(search_url, wait_until="networkidle")
+            
+            # Beatport tracks are often in a list. We look for track links.
+            # Typical URL: /track/name/12345
+            # We look for links containing "/track/"
+            track_links = page.locator("a[href*='/track/']")
+            
+            # Wait for at least one track link to appear
+            try:
+                await track_links.first.wait_for(state="visible", timeout=5000)
+            except:
+                return None
+
+            count = await track_links.count()
+            for i in range(count):
+                href = await track_links.nth(i).get_attribute("href")
+                if href:
+                    # Example: /track/lucid-dreams/1234567
+                    parts = href.split("/")
+                    if parts[-1].isdigit():
+                        track_id = int(parts[-1])
+                        await page.close()
+                        return track_id
+            
+            await page.close()
+            return None
+        except Exception as e:
+            print(f"Beatport search error: {e}")
+            await page.close()
+            return None
+
 # -----------------------------
 # Convenience function
 # -----------------------------
@@ -181,3 +225,6 @@ _manager = PlaywrightManager()
 
 async def search_tracks_async(query: str) -> List[Dict]:
     return await _manager.search_tracks(query)
+
+async def search_beatport_track_id_async(artist: str, title: str, mix: str) -> Optional[int]:
+    return await _manager.search_beatport_track_id(artist, title, mix)
