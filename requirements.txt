@@ -32,7 +32,7 @@ packaging==25.0
 parsel==1.10.0
 playwright==1.57.0
 Protego==0.5.0
-pyasn1==0.6.1
+pyasn1==0.6.2
 pyasn1_modules==0.4.2
 pycparser==2.23
 pydantic==2.12.5
@@ -50,7 +50,7 @@ PyYAML==6.0.3
 queuelib==1.8.0
 requests==2.32.5
 requests-file==3.0.1
-Scrapy==2.13.4
+Scrapy==2.14.1
 scrapy-playwright==0.0.44
 selenium==4.39.0
 service-identity==24.2.0
