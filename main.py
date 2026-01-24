@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+import random
 from datetime import datetime
 from typing import List, Optional
 from contextlib import asynccontextmanager
@@ -26,7 +27,7 @@ DB_NAME = os.getenv("MONGO_DB", "music_search_db")
 COL_NAME = os.getenv("MONGO_COL", "search_history")
 
 NGROK_AUTH = os.getenv("NGROK_AUTH", "")
-PORT = int(os.getenv("PORT", "8111"))
+PORT = int(os.getenv("PORT", random.randint(8000, 9000)))
 APP_TIMEZONE = ZoneInfo("Asia/Bangkok")
 
 

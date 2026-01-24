@@ -66,7 +66,7 @@ class PlaywrightManager:
 
         self.playwright = await async_playwright().start()
 
-        self.browser = await self.playwright.chromium.launch(
+        self.browser = await self.playwright.chrome.launch(
             headless=False,
             args=[
                 "--disable-blink-features=AutomationControlled",
