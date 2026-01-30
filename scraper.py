@@ -66,7 +66,7 @@ class PlaywrightManager:
 
         self.playwright = await async_playwright().start()
 
-        self.browser = await self.playwright.chrome.launch(
+        self.browser = await self.playwright.chromium.launch(
             headless=False,
             args=[
                 "--disable-blink-features=AutomationControlled",
@@ -176,7 +176,7 @@ class PlaywrightManager:
         return results
 
     # -----------------------------
-    async def search_beatport_track_id(self, artist: str, title: str, mix: str) -> Optional[int]:
+    async def search_beatport_track_id(self, artist: str, title: str, mix: str) -> Optional[Dict]:
         query = f"{artist} {title} {mix}".strip()
         search_url = f"https://www.beatport.com/search?q={query}"
 
@@ -208,8 +208,9 @@ class PlaywrightManager:
                     parts = href.split("/")
                     if parts[-1].isdigit():
                         track_id = int(parts[-1])
+                        track_url = f"https://www.beatport.com{href}"
                         await page.close()
-                        return track_id
+                        return {"track_id": track_id, "track_url": track_url}
             
             await page.close()
             return None
@@ -226,5 +227,5 @@ _manager = PlaywrightManager()
 async def search_tracks_async(query: str) -> List[Dict]:
     return await _manager.search_tracks(query)
 
-async def search_beatport_track_id_async(artist: str, title: str, mix: str) -> Optional[int]:
+async def search_beatport_track_id_async(artist: str, title: str, mix: str) -> Optional[Dict]:
     return await _manager.search_beatport_track_id(artist, title, mix)

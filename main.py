@@ -178,7 +178,6 @@ async def health():
     except Exception:
         return {"status": "degraded", "db": "disconnected"}
 
-
 @app.get("/search", response_model=SearchResponse)
 async def search(track: str = Query(..., min_length=1)):
     query = track.strip()
@@ -212,7 +211,7 @@ async def search(track: str = Query(..., min_length=1)):
     )
 
 
-@app.get("/beatport/track-id")
+@app.get("/beatport")
 async def get_beatport_track_id(
     artist: str = Query(..., min_length=1),
     title: str = Query(..., min_length=1),
@@ -220,10 +219,10 @@ async def get_beatport_track_id(
 ):
     """Find a Beatport track ID from title, artist, and mix name."""
     try:
-        track_id = await search_beatport_track_id_async(artist, title, mix)
-        if not track_id:
+        result = await search_beatport_track_id_async(artist, title, mix)
+        if not result:
             raise HTTPException(status_code=404, detail="Track not found on Beatport")
-        return {"track_id": track_id}
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Beatport search error: {e}")
 
