@@ -4,6 +4,7 @@
 
 import os
 import asyncio
+import urllib.parse
 from typing import List, Optional, Dict
 import random
 from pydantic import BaseModel
@@ -178,7 +179,9 @@ class PlaywrightManager:
     # -----------------------------
     async def search_beatport_track_id(self, artist: str, title: str, mix: str) -> Optional[Dict]:
         query = f"{artist} {title} {mix}".strip()
-        search_url = f"https://www.beatport.com/search?q={query}"
+        encoded_query = urllib.parse.quote(query)
+        search_url = f"https://www.beatport.com/search?q={encoded_query}"
+        title_slug = title.lower().strip().replace(" ", "-")
 
         await self.start()
         page: Page = await self.context.new_page()
@@ -198,12 +201,13 @@ class PlaywrightManager:
             try:
                 await track_links.first.wait_for(state="visible", timeout=5000)
             except:
+                await page.close()
                 return None
 
             count = await track_links.count()
             for i in range(count):
                 href = await track_links.nth(i).get_attribute("href")
-                if href:
+                if href and f"/track/{title_slug}/" in href:
                     # Example: /track/lucid-dreams/1234567
                     parts = href.split("/")
                     if parts[-1].isdigit():
