@@ -45,7 +45,7 @@ pyngrok==7.5.0
 pyOpenSSL==25.3.0
 PySocks==1.7.1
 python-dateutil==2.9.0.post0
-python-dotenv==1.2.1
+python-dotenv==1.2.2
 PyYAML==6.0.3
 queuelib==1.8.0
 requests==2.32.5
